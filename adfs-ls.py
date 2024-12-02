@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from termcolor import colored
 from xml.etree import ElementTree as ET
+import re
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Check ADFS URL for dropdown field and extract options.")
@@ -46,18 +47,23 @@ def fetch_metadata(target, timeout):
     except requests.exceptions.RequestException:
         return url, None
 
-def parse_metadata(xml_content):
+def parse_metadata(xml_content, target):
     try:
         root = ET.fromstring(xml_content)
         namespaces = {"md": "urn:oasis:names:tc:SAML:2.0:metadata"}
-        endpoints = set()  # Use a set to deduplicate entries
+        endpoints = set()  # Deduplicate URLs
         for endpoint in root.findall(".//md:AssertionConsumerService", namespaces):
             location = endpoint.get("Location")
             if location:
                 endpoints.add(location)
-        return list(endpoints)
+
+        # Find all full URLs containing the target domain
+        all_urls = set(re.findall(r"https?://[^\"']+", xml_content))
+        related_urls = {url for url in all_urls if target in url}
+
+        return list(endpoints), list(related_urls)
     except ET.ParseError:
-        return []
+        return [], []
 
 def display_results(results):
     print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<10}")
@@ -83,9 +89,10 @@ def main():
             options_found[target] = options
             metadata_url, metadata_content = fetch_metadata(target.strip(), args.timeout)
             if metadata_content:
-                metadata_found[target] = (metadata_url, parse_metadata(metadata_content))
+                endpoints, related_urls = parse_metadata(metadata_content, target.strip())
+                metadata_found[target] = (metadata_url, endpoints, related_urls)
             else:
-                metadata_found[target] = (metadata_url, None)
+                metadata_found[target] = (metadata_url, None, None)
 
     # Display results for sign-on page checks
     display_results(results)
@@ -95,21 +102,30 @@ def main():
         print("\nEnumerated Relying Parties:")
         for target, options in options_found.items():
             print(f"\nTarget: {target}")
+            print(f"{'Entity Name':<40} {'ID':<20}")
+            print("=" * 60)
             for human_readable, alphanumeric_id in options:
-                print(f"  - {human_readable} ({alphanumeric_id})")
+                print(f"{human_readable:<40} {alphanumeric_id:<20}")
 
     # Display metadata results
     if metadata_found:
         print("\nMetadata Results:")
-        for target, (metadata_url, endpoints) in metadata_found.items():
+        for target, (metadata_url, endpoints, related_urls) in metadata_found.items():
             print(f"\nTarget: {target}")
             print(f"  Metadata URL: {metadata_url}")
             if endpoints:
-                print("  Contents:")
+                print("  Endpoints:")
                 for endpoint in endpoints:
                     print(f"    - {endpoint}")
             else:
-                print("  No metadata contents found.")
+                print("  No endpoints found.")
+
+            if related_urls:
+                print("  Related URLs:")
+                for url in related_urls:
+                    print(f"    - {url}")
+            else:
+                print("  No related URLs found.")
 
 if __name__ == "__main__":
     main()
