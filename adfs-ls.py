@@ -75,7 +75,7 @@ def display_results(results):
     print("=" * 60)
     for result in results:
         target, code, status = result[:3]
-        color = "bright_green" if status == "Found" else "red"
+        color = "green" if status == "Found" else "red"
         print(f"{target:<40} {code:<10} {colored(status, color):<10}")
 
 def main():
