@@ -59,10 +59,16 @@ def parse_metadata(xml_content, target):
             if location:
                 endpoints.add(location)
 
-        # Clean extraction of related URLs
+        # Clean extraction of related URLs, filtering out unwanted domains
         all_urls = set(re.findall(r"https?://[^\s\"<>]+", xml_content))
-        related_urls = {url for url in all_urls if target in url}
-        external_urls = {url for url in all_urls if target not in url and "microsoft.com" not in url}
+        related_urls = {
+            url for url in all_urls
+            if target in url and not any(excluded in url for excluded in ["schemas.xmlsoap.org", "docs.oasis-open.org", "www.w3.org"])
+        }
+        external_urls = {
+            url for url in all_urls
+            if target not in url and not any(excluded in url for excluded in ["microsoft.com", "schemas.xmlsoap.org", "docs.oasis-open.org", "www.w3.org"])
+        }
         return list(endpoints), list(related_urls), list(external_urls)
     except ET.ParseError:
         return [], [], []
@@ -150,7 +156,7 @@ def main():
             if related_urls:
                 for url in related_urls:
                     if url.startswith("http://"):
-                        print(colored(url, "red"))
+                        print(colored("http://", "red") + url[7:])
                     else:
                         print(url)
             else:
