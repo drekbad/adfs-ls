@@ -73,21 +73,22 @@ def parse_metadata(xml_content, target):
     except ET.ParseError:
         return [], [], []
 
-def well_known_checks(target, timeout):
+def well_known_checks(urls, timeout):
     well_known_paths = [
         "/trust/mex",
         "/adfs/ls/",
         "/.well-known/openid-configuration"
     ]
     hits = []
-    for path in well_known_paths:
-        url = construct_url(target, path=path)
-        try:
-            response = requests.get(url, timeout=timeout)
-            if response.status_code == 200:
-                hits.append(url)
-        except requests.exceptions.RequestException:
-            continue
+    for base_url in urls:
+        for path in well_known_paths:
+            full_url = base_url.rstrip("/") + path
+            try:
+                response = requests.get(full_url, timeout=timeout)
+                if response.status_code == 200:
+                    hits.append(full_url)
+            except requests.exceptions.RequestException:
+                continue
     return hits
 
 def write_to_file(file_path, content):
@@ -146,28 +147,22 @@ def main():
             print(f"\nTarget: {target}")
             print(colored("Metadata URL:", "cyan", attrs=["underline"]))
             print(metadata_url)
-            print(colored("Endpoints:", "cyan", attrs=["underline"]))
             if endpoints:
+                print(colored("Endpoints:", "cyan", attrs=["underline"]))
                 for endpoint in endpoints:
                     print(endpoint)
-            else:
-                print("None found.")
-            print(colored("Related URLs:", "cyan", attrs=["underline"]))
             if related_urls:
+                print(colored("Related URLs:", "cyan", attrs=["underline"]))
                 for url in related_urls:
                     if url.startswith("http://"):
                         print(colored("http://", "red") + url[7:])
                     else:
                         print(url)
-            else:
-                print("None found.")
             if external_urls:
                 print(colored("External Domains Discovered:", "cyan", attrs=["underline"]))
                 for url in external_urls:
                     print(url)
-            else:
-                print("None found.")
-    
+
     if args.output:
         write_to_file(args.output, "".join(output_content))
 
