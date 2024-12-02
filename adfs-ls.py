@@ -62,9 +62,27 @@ def parse_metadata(xml_content, target):
         # Clean extraction of related URLs
         all_urls = set(re.findall(r"https?://[^\s\"<>]+", xml_content))
         related_urls = {url for url in all_urls if target in url}
-        return list(endpoints), list(related_urls)
+        external_urls = {url for url in all_urls if target not in url and "microsoft.com" not in url}
+        return list(endpoints), list(related_urls), list(external_urls)
     except ET.ParseError:
-        return [], []
+        return [], [], []
+
+def well_known_checks(target, timeout):
+    well_known_paths = [
+        "/trust/mex",
+        "/adfs/ls/",
+        "/.well-known/openid-configuration"
+    ]
+    hits = []
+    for path in well_known_paths:
+        url = construct_url(target, path=path)
+        try:
+            response = requests.get(url, timeout=timeout)
+            if response.status_code == 200:
+                hits.append(url)
+        except requests.exceptions.RequestException:
+            continue
+    return hits
 
 def write_to_file(file_path, content):
     with open(file_path, "w") as file:
@@ -95,65 +113,55 @@ def main():
             options_found[target] = options
             metadata_url, metadata_content = fetch_metadata(target.strip(), args.timeout)
             if metadata_content:
-                endpoints, related_urls = parse_metadata(metadata_content, target.strip())
-                metadata_found[target] = (metadata_url, endpoints, related_urls)
+                endpoints, related_urls, external_urls = parse_metadata(metadata_content, target.strip())
+                metadata_found[target] = (metadata_url, endpoints, related_urls, external_urls)
             else:
-                metadata_found[target] = (metadata_url, None, None)
+                metadata_found[target] = (metadata_url, None, None, None)
 
     # Display results for sign-on page checks
     display_results(results)
-
-    # Pause for 2 seconds to allow users to review the summary
     time.sleep(2)
 
     # Display relying party dropdown contents
     if options_found:
         print("\nEnumerated Relying Parties:")
-        output_content.append("\nEnumerated Relying Parties:\n")
         for target, options in options_found.items():
             print(f"\nTarget: {target}")
-            output_content.append(f"\nTarget: {target}\n")
             print(f"{'Entity Name':<40} {'ID':<20}")
-            output_content.append(f"{'Entity Name':<40} {'ID':<20}\n")
             print("=" * 60)
-            output_content.append("=" * 60 + "\n")
             for human_readable, alphanumeric_id in options:
                 print(f"{human_readable:<40} {alphanumeric_id:<20}")
-                output_content.append(f"{human_readable:<40} {alphanumeric_id:<20}\n")
 
     # Display metadata results
     if metadata_found:
         print("\nMetadata Results:")
         print("=" * 80)
-        output_content.append("\nMetadata Results:\n")
-        output_content.append("=" * 80 + "\n")
-        for target, (metadata_url, endpoints, related_urls) in metadata_found.items():
+        for target, (metadata_url, endpoints, related_urls, external_urls) in metadata_found.items():
             print(f"\nTarget: {target}")
-            output_content.append(f"\nTarget: {target}\n")
-            print(colored("Metadata URL:", "blue", attrs=["underline"]))
-            output_content.append(f"Metadata URL: {metadata_url}\n")
+            print(colored("Metadata URL:", "cyan", attrs=["underline"]))
             print(metadata_url)
-            output_content.append(metadata_url + "\n")
-            print(colored("Endpoints:", "blue", attrs=["underline"]))
-            output_content.append("Endpoints:\n")
+            print(colored("Endpoints:", "cyan", attrs=["underline"]))
             if endpoints:
                 for endpoint in endpoints:
                     print(endpoint)
-                    output_content.append(endpoint + "\n")
             else:
                 print("None found.")
-                output_content.append("None found.\n")
-            print(colored("Related URLs:", "blue", attrs=["underline"]))
-            output_content.append("Related URLs:\n")
+            print(colored("Related URLs:", "cyan", attrs=["underline"]))
             if related_urls:
                 for url in related_urls:
-                    print(url)
-                    output_content.append(url + "\n")
+                    if url.startswith("http://"):
+                        print(colored(url, "red"))
+                    else:
+                        print(url)
             else:
                 print("None found.")
-                output_content.append("None found.\n")
-
-    # Save results to a file if -o is specified
+            if external_urls:
+                print(colored("External Domains Discovered:", "cyan", attrs=["underline"]))
+                for url in external_urls:
+                    print(url)
+            else:
+                print("None found.")
+    
     if args.output:
         write_to_file(args.output, "".join(output_content))
 
