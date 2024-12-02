@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from termcolor import colored
 from xml.etree import ElementTree as ET
+from urllib.parse import urlparse, urlunparse
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Check ADFS URL for dropdown field and extract options.")
@@ -10,8 +11,16 @@ def parse_arguments():
     parser.add_argument("--timeout", type=int, default=5, help="Request timeout in seconds (default: 5).")
     return parser.parse_args()
 
+def construct_url(target, path="/adfs/ls/idpinitiatedsignon.aspx"):
+    if ":" in target:
+        host, port = target.rsplit(":", 1)
+        if port == "80":
+            return f"http://{host}{path}"
+        return f"https://{host}:{port}{path}"
+    return f"https://{target}{path}"
+
 def check_adfs_target(target, timeout):
-    url = f"http://{target}/adfs/ls/idpinitiatedsignon.aspx"
+    url = construct_url(target)
     try:
         response = requests.get(url, timeout=timeout)
         if response.status_code == 200 and "idp_RelyingPartyDropDownList" in response.text:
@@ -29,9 +38,9 @@ def check_adfs_target(target, timeout):
         return "Error", str(e), []
 
 def fetch_metadata(target, timeout):
-    metadata_url = f"https://{target}/FederationMetadata/2007-06/FederationMetadata.xml"
+    url = construct_url(target, path="/FederationMetadata/2007-06/FederationMetadata.xml")
     try:
-        response = requests.get(metadata_url, timeout=timeout)
+        response = requests.get(url, timeout=timeout)
         if response.status_code == 200:
             return response.text
         return None
