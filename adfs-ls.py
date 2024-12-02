@@ -4,10 +4,12 @@ from bs4 import BeautifulSoup
 from termcolor import colored
 from xml.etree import ElementTree as ET
 import re
+import time
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Check ADFS URL for dropdown field and extract options.")
     parser.add_argument("-i", "--input", required=True, help="Input file containing FQDNs or IPs.")
+    parser.add_argument("-o", "--output", help="Output file to save the results.")
     parser.add_argument("--timeout", type=int, default=5, help="Request timeout in seconds (default: 5).")
     return parser.parse_args()
 
@@ -51,19 +53,22 @@ def parse_metadata(xml_content, target):
     try:
         root = ET.fromstring(xml_content)
         namespaces = {"md": "urn:oasis:names:tc:SAML:2.0:metadata"}
-        endpoints = set()  # Deduplicate URLs
+        endpoints = set()
         for endpoint in root.findall(".//md:AssertionConsumerService", namespaces):
             location = endpoint.get("Location")
             if location:
                 endpoints.add(location)
 
-        # Find all full URLs containing the target domain
-        all_urls = set(re.findall(r"https?://[^\"']+", xml_content))
+        # Clean extraction of related URLs
+        all_urls = set(re.findall(r"https?://[^\s\"<>]+", xml_content))
         related_urls = {url for url in all_urls if target in url}
-
         return list(endpoints), list(related_urls)
     except ET.ParseError:
         return [], []
+
+def write_to_file(file_path, content):
+    with open(file_path, "w") as file:
+        file.write(content)
 
 def display_results(results):
     print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<10}")
@@ -78,6 +83,7 @@ def main():
     results = []
     options_found = {}
     metadata_found = {}
+    output_content = []
 
     with open(args.input, "r") as file:
         targets = file.read().splitlines()
@@ -97,35 +103,58 @@ def main():
     # Display results for sign-on page checks
     display_results(results)
 
+    # Pause for 1 second to allow users to review the summary
+    time.sleep(1)
+
     # Display relying party dropdown contents
     if options_found:
         print("\nEnumerated Relying Parties:")
+        output_content.append("\nEnumerated Relying Parties:\n")
         for target, options in options_found.items():
             print(f"\nTarget: {target}")
+            output_content.append(f"\nTarget: {target}\n")
             print(f"{'Entity Name':<40} {'ID':<20}")
+            output_content.append(f"{'Entity Name':<40} {'ID':<20}\n")
             print("=" * 60)
+            output_content.append("=" * 60 + "\n")
             for human_readable, alphanumeric_id in options:
                 print(f"{human_readable:<40} {alphanumeric_id:<20}")
+                output_content.append(f"{human_readable:<40} {alphanumeric_id:<20}\n")
 
     # Display metadata results
     if metadata_found:
         print("\nMetadata Results:")
+        print("=" * 80)
+        output_content.append("\nMetadata Results:\n")
+        output_content.append("=" * 80 + "\n")
         for target, (metadata_url, endpoints, related_urls) in metadata_found.items():
             print(f"\nTarget: {target}")
+            output_content.append(f"\nTarget: {target}\n")
             print(f"  Metadata URL: {metadata_url}")
+            output_content.append(f"  Metadata URL: {metadata_url}\n")
             if endpoints:
                 print("  Endpoints:")
+                output_content.append("  Endpoints:\n")
                 for endpoint in endpoints:
-                    print(f"    - {endpoint}")
+                    print(endpoint)
+                    output_content.append(endpoint + "\n")
             else:
                 print("  No endpoints found.")
+                output_content.append("  No endpoints found.\n")
 
             if related_urls:
                 print("  Related URLs:")
+                output_content.append("  Related URLs:\n")
                 for url in related_urls:
-                    print(f"    - {url}")
+                    print(url)
+                    output_content.append(url + "\n")
             else:
                 print("  No related URLs found.")
+                output_content.append("  No related URLs found.\n")
+
+    # Save results to a file if -o is specified
+    if args.output:
+        write_to_file(args.output, "".join(output_content))
 
 if __name__ == "__main__":
     main()
