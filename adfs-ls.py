@@ -3,7 +3,6 @@ import requests
 from bs4 import BeautifulSoup
 from termcolor import colored
 from xml.etree import ElementTree as ET
-from urllib.parse import urlparse, urlunparse
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Check ADFS URL for dropdown field and extract options.")
@@ -42,21 +41,21 @@ def fetch_metadata(target, timeout):
     try:
         response = requests.get(url, timeout=timeout)
         if response.status_code == 200:
-            return response.text
-        return None
-    except requests.exceptions.RequestException as e:
-        return None
+            return url, response.text
+        return url, None
+    except requests.exceptions.RequestException:
+        return url, None
 
 def parse_metadata(xml_content):
     try:
         root = ET.fromstring(xml_content)
         namespaces = {"md": "urn:oasis:names:tc:SAML:2.0:metadata"}
-        endpoints = []
+        endpoints = set()  # Use a set to deduplicate entries
         for endpoint in root.findall(".//md:AssertionConsumerService", namespaces):
             location = endpoint.get("Location")
             if location:
-                endpoints.append(location)
-        return endpoints
+                endpoints.add(location)
+        return list(endpoints)
     except ET.ParseError:
         return []
 
@@ -82,25 +81,35 @@ def main():
         results.append((target, code, status))
         if status == "Found" and options:
             options_found[target] = options
-            metadata = fetch_metadata(target.strip(), args.timeout)
-            if metadata:
-                metadata_found[target] = parse_metadata(metadata)
+            metadata_url, metadata_content = fetch_metadata(target.strip(), args.timeout)
+            if metadata_content:
+                metadata_found[target] = (metadata_url, parse_metadata(metadata_content))
+            else:
+                metadata_found[target] = (metadata_url, None)
 
+    # Display results for sign-on page checks
     display_results(results)
 
+    # Display relying party dropdown contents
     if options_found:
-        print("\nDropdown contents found:")
+        print("\nEnumerated Relying Parties:")
         for target, options in options_found.items():
             print(f"\nTarget: {target}")
             for human_readable, alphanumeric_id in options:
-                print(f"{human_readable} ({alphanumeric_id})")
+                print(f"  - {human_readable} ({alphanumeric_id})")
 
+    # Display metadata results
     if metadata_found:
-        print("\nMetadata contents found:")
-        for target, endpoints in metadata_found.items():
+        print("\nMetadata Results:")
+        for target, (metadata_url, endpoints) in metadata_found.items():
             print(f"\nTarget: {target}")
-            for endpoint in endpoints:
-                print(endpoint)
+            print(f"  Metadata URL: {metadata_url}")
+            if endpoints:
+                print("  Contents:")
+                for endpoint in endpoints:
+                    print(f"    - {endpoint}")
+            else:
+                print("  No metadata contents found.")
 
 if __name__ == "__main__":
     main()
