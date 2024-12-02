@@ -59,17 +59,17 @@ def parse_metadata(xml_content, target):
             if location:
                 endpoints.add(location)
 
-        # Clean extraction of related URLs, filtering out unwanted domains
+        # Extract and sort related URLs
         all_urls = set(re.findall(r"https?://[^\s\"<>]+", xml_content))
-        related_urls = {
+        related_urls = sorted({
             url for url in all_urls
             if target in url and not any(excluded in url for excluded in ["schemas.xmlsoap.org", "docs.oasis-open.org", "www.w3.org"])
-        }
-        external_urls = {
+        })
+        external_urls = sorted({
             url for url in all_urls
             if target not in url and not any(excluded in url for excluded in ["microsoft.com", "schemas.xmlsoap.org", "docs.oasis-open.org", "www.w3.org"])
-        }
-        return list(endpoints), list(related_urls), list(external_urls)
+        })
+        return list(endpoints), related_urls, external_urls
     except ET.ParseError:
         return [], [], []
 
@@ -162,6 +162,18 @@ def main():
                 print(colored("External Domains Discovered:", "cyan", attrs=["underline"]))
                 for url in external_urls:
                     print(url)
+
+    # Check for additional metadata or resources
+    well_known_hits = []
+    for target, (_, _, related_urls, _) in metadata_found.items():
+        well_known_hits.extend(well_known_checks(related_urls, args.timeout))
+    
+    if well_known_hits:
+        print("\nAdditional Resources Identified:")
+        for hit in well_known_hits:
+            print(hit)
+    else:
+        print("\nNo additional metadata or resources identified.")
 
     if args.output:
         write_to_file(args.output, "".join(output_content))
