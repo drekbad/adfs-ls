@@ -75,7 +75,7 @@ def display_results(results):
     print("=" * 60)
     for result in results:
         target, code, status = result[:3]
-        color = "green" if status == "Found" else "red"
+        color = "bright_green" if status == "Found" else "red"
         print(f"{target:<40} {code:<10} {colored(status, color):<10}")
 
 def main():
@@ -103,8 +103,8 @@ def main():
     # Display results for sign-on page checks
     display_results(results)
 
-    # Pause for 1 second to allow users to review the summary
-    time.sleep(1)
+    # Pause for 2 seconds to allow users to review the summary
+    time.sleep(2)
 
     # Display relying party dropdown contents
     if options_found:
@@ -130,27 +130,28 @@ def main():
         for target, (metadata_url, endpoints, related_urls) in metadata_found.items():
             print(f"\nTarget: {target}")
             output_content.append(f"\nTarget: {target}\n")
-            print(f"  Metadata URL: {metadata_url}")
-            output_content.append(f"  Metadata URL: {metadata_url}\n")
+            print(colored("Metadata URL:", "blue", attrs=["underline"]))
+            output_content.append(f"Metadata URL: {metadata_url}\n")
+            print(metadata_url)
+            output_content.append(metadata_url + "\n")
+            print(colored("Endpoints:", "blue", attrs=["underline"]))
+            output_content.append("Endpoints:\n")
             if endpoints:
-                print("  Endpoints:")
-                output_content.append("  Endpoints:\n")
                 for endpoint in endpoints:
                     print(endpoint)
                     output_content.append(endpoint + "\n")
             else:
-                print("  No endpoints found.")
-                output_content.append("  No endpoints found.\n")
-
+                print("None found.")
+                output_content.append("None found.\n")
+            print(colored("Related URLs:", "blue", attrs=["underline"]))
+            output_content.append("Related URLs:\n")
             if related_urls:
-                print("  Related URLs:")
-                output_content.append("  Related URLs:\n")
                 for url in related_urls:
                     print(url)
                     output_content.append(url + "\n")
             else:
-                print("  No related URLs found.")
-                output_content.append("  No related URLs found.\n")
+                print("None found.")
+                output_content.append("None found.\n")
 
     # Save results to a file if -o is specified
     if args.output:
