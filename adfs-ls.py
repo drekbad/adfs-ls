@@ -21,13 +21,13 @@ def parse_arguments():
 
 def refined_expand_full_or_short_range(range_str):
     """
-    Handle full IP ranges (e.g., "192.168.1.1 - 192.168.1.5") and short octet ranges
-    (e.g., "192.168.1.1 - 115").
+    Handle both full IP ranges (e.g., "10.10.10.10 - 10.10.10.15") and short octet ranges
+    (e.g., "10.10.10.10 - 15").
     """
     try:
         range_str = re.sub(r"\s*-\s*", "-", range_str.strip())  # Normalize spaces around hyphen
         parts = range_str.split("-")
-        
+
         if len(parts) != 2:
             raise ValueError("Range must contain a start and end value separated by '-'.")
 
@@ -35,30 +35,33 @@ def refined_expand_full_or_short_range(range_str):
 
         # Validate starting IP
         if not re.match(r"^\d+\.\d+\.\d+\.\d+$", start_ip_str):
-            raise ValueError(f"Invalid starting IP '{start_ip_str}'.")
+            raise ValueError(f"Invalid starting IP '{start_ip_str}': only 3 octets provided.")
+
         start_ip = ip_address(start_ip_str)
 
         # Handle full IP end
         if re.match(r"^\d+\.\d+\.\d+\.\d+$", end_part):
             end_ip = ip_address(end_part)
             if start_ip > end_ip:
-                raise ValueError(f"Start IP {start_ip} is greater than end IP {end_ip}.")
+                raise ValueError(f"Invalid range: starting IP {start_ip} is greater than ending IP {end_ip}.")
             return [str(ip) for ip in range(int(start_ip), int(end_ip) + 1)]
 
-        # Handle short octet end
-        if re.match(r"^\d+$", end_part):
+        # Handle short octet end (e.g., "10.10.10.10 - 15" or "10.10.10.10 - .15")
+        if re.match(r"^\d+$", end_part) or re.match(r"^\.\d+$", end_part):
             base_ip, last_octet = start_ip_str.rsplit(".", 1)
             start_octet = int(last_octet)
-            end_octet = int(end_part)
+            end_octet = int(end_part.strip("."))
+
             if not (0 <= start_octet <= 255 and 0 <= end_octet <= 255):
-                raise ValueError("Octet values must be between 0 and 255.")
+                raise ValueError("Invalid octet values: must be between 0 and 255.")
             if start_octet > end_octet:
-                raise ValueError(f"Start octet {start_octet} is greater than end octet {end_octet}.")
+                raise ValueError(f"Invalid range: starting octet {start_octet} is greater than ending octet {end_octet}.")
             return [f"{base_ip}.{i}" for i in range(start_octet, end_octet + 1)]
 
-        raise ValueError(f"Invalid end value '{end_part}'.")
+        raise ValueError(f"Invalid range format: unexpected end value '{end_part}'.")
     except ValueError as e:
-        return [f"Invalid IP range '{range_str}': {e}"]
+        print(f"Invalid IP range '{range_str}': {e}")
+        return []
 
 def validate_target(target):
     """
@@ -77,11 +80,9 @@ def expand_target_list(targets):
     Expand targets into individual IPs, CIDRs, and FQDNs.
     """
     expanded_targets = set()
+
     for target in targets:
         target = target.strip()
-        if not validate_target(target):
-            print(f"Invalid target '{target}' - skipping.")
-            continue
         if re.match(r"^\d+\.\d+\.\d+\.\d+$", target):  # Single IP
             expanded_targets.add(target)
         elif "-" in target:  # Range
@@ -92,8 +93,11 @@ def expand_target_list(targets):
                 expanded_targets.update(str(ip) for ip in network)
             except ValueError as e:
                 print(f"Invalid CIDR range '{target}': {e}")
-        else:  # FQDN
+        elif re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", target):  # FQDN
             expanded_targets.add(target)
+        else:
+            print(f"Invalid target '{target}' - skipping.")
+
     return sorted(expanded_targets, key=lambda x: tuple(map(int, x.split("."))) if re.match(r"^\d+\.\d+\.\d+\.\d+$", x) else x)
 
 def main():
