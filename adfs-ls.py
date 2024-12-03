@@ -27,26 +27,28 @@ def refined_expand_full_or_short_range(range_str):
     try:
         # Normalize spaces around the hyphen
         range_str = re.sub(r"\s*-\s*", "-", range_str.strip())
+        parts = range_str.split("-")
 
-        # Check if the range contains a short form (last octet only)
-        if "-" in range_str:
-            parts = range_str.split("-")
-            start_ip_str = parts[0].strip()
-            end_part = parts[1].strip()
+        if len(parts) != 2:
+            raise ValueError("Range must contain a start and end value separated by '-'.")
 
-            # Validate the starting IP
-            if not re.match(r"^\d+\.\d+\.\d+\.\d+$", start_ip_str):
-                raise ValueError(f"Invalid starting IP '{start_ip_str}'.")
+        start_ip_str, end_part = parts[0].strip(), parts[1].strip()
 
-            # If end_part is a full IP, treat as a full range
-            if re.match(r"^\d+\.\d+\.\d+\.\d+$", end_part):
-                start_ip = ip_address(start_ip_str)
-                end_ip = ip_address(end_part)
-                if start_ip > end_ip:
-                    raise ValueError(f"Start IP {start_ip} is greater than end IP {end_ip}.")
-                return [str(ip) for ip in range(int(start_ip), int(end_ip) + 1)]
+        # Validate the starting IP
+        if not re.match(r"^\d+\.\d+\.\d+\.\d+$", start_ip_str):
+            raise ValueError(f"Invalid starting IP '{start_ip_str}'.")
 
-            # Otherwise, assume it's a short octet range
+        start_ip = ip_address(start_ip_str)
+
+        # If end_part is a full IP, handle as a full range
+        if re.match(r"^\d+\.\d+\.\d+\.\d+$", end_part):
+            end_ip = ip_address(end_part)
+            if start_ip > end_ip:
+                raise ValueError(f"Start IP {start_ip} is greater than end IP {end_ip}.")
+            return [str(ip) for ip in range(int(start_ip), int(end_ip) + 1)]
+
+        # If end_part is a short octet, handle as a short range
+        if re.match(r"^\d+$", end_part):
             base_ip, last_octet = start_ip_str.rsplit(".", 1)
             start_octet = int(last_octet)
             end_octet = int(end_part)
@@ -60,10 +62,9 @@ def refined_expand_full_or_short_range(range_str):
             # Generate the range
             return [f"{base_ip}.{i}" for i in range(start_octet, end_octet + 1)]
 
-        raise ValueError("Invalid range format.")
+        raise ValueError(f"Invalid end value '{end_part}'.")
     except ValueError as e:
-        print(f"Invalid IP range '{range_str}': {e}")
-        return []
+        return f"Invalid IP range '{range_str}': {e}"
 
 def validate_target(target):
     """
