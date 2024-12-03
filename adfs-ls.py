@@ -85,7 +85,39 @@ def construct_url(target, path="/adfs/ls/idpinitiatedsignon.aspx"):
         return f"https://{host}:{port}{path}"
     return f"https://{target}{path}"
 
-# Other functions (check_adfs_target, process_target, fetch_metadata, etc.) remain unchanged...
+def check_adfs_target(target, timeout, verbose):
+    url = construct_url(target)
+    try:
+        response = requests.get(url, timeout=timeout)
+        if response.status_code == 200 and "idp_RelyingPartyDropDownList" in response.text:
+            soup = BeautifulSoup(response.text, "html.parser")
+            dropdown = soup.find("select", id="idp_RelyingPartyDropDownList")
+            options = []
+            if dropdown:
+                for option in dropdown.find_all("option"):
+                    human_readable = option.text.strip()
+                    alphanumeric_id = option.get("value", "N/A")
+                    options.append((human_readable, alphanumeric_id))
+            return target, response.status_code, "Found", options
+        return target, response.status_code, "Not Found", []
+    except requests.exceptions.RequestException as e:
+        error_message = str(e)
+        if "Max retries exceeded" in error_message:
+            concise_error = "No response on port 443"
+        else:
+            concise_error = "Request error"
+        return target, "Error", error_message if verbose else concise_error, []
+
+def process_target(target, timeout, verbose):
+    return check_adfs_target(target, timeout, verbose)
+
+def display_progress(total, completed):
+    with output_lock:
+        print(f"\rSearching for ADFS targets... {completed}/{total} completed", end="", flush=True)
+
+def write_to_file(file_path, content):
+    with open(file_path, "w") as file:
+        file.write(content)
 
 def main():
     args = parse_arguments()
