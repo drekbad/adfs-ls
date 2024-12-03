@@ -30,10 +30,9 @@ def expand_target_list(targets):
             expanded_targets.add(target)
             (private_ips if is_private_ip(target) else public_ips).add(target)
         elif re.match(r"^\d+\.\d+\.\d+\.\d+-\d+$", target):  # Hyphenated range, short form
-            start, end = target.rsplit(".", 1)[0], target.rsplit(".", 1)[1]
-            expanded_targets.update(expand_hyphenated_range(f"{start}.{end}"))
+            expanded_targets.update(expand_short_hyphen_range(target))
         elif "-" in target:  # Full dotted octet range (e.g., 192.168.1.1-192.168.1.5)
-            expanded_targets.update(expand_hyphenated_range(target))
+            expanded_targets.update(expand_full_hyphen_range(target))
         elif "/" in target:  # CIDR range
             expanded_targets.update(expand_cidr_range(target))
         else:  # Domain or FQDN
@@ -49,14 +48,25 @@ def expand_cidr_range(cidr):
         print(f"Invalid CIDR range '{cidr}': {e}")
         return set()
 
-def expand_hyphenated_range(range_str):
+def expand_short_hyphen_range(range_str):
+    try:
+        base, last_octet = range_str.rsplit(".", 1)
+        start_octet, end_octet = map(int, last_octet.split("-"))
+        if not (0 <= start_octet <= 255 and 0 <= end_octet <= 255):
+            raise ValueError("Octet values must be between 0 and 255.")
+        return {f"{base}.{i}" for i in range(start_octet, end_octet + 1)}
+    except ValueError as e:
+        print(f"Invalid IP range '{range_str}': {e}")
+        return set()
+
+def expand_full_hyphen_range(range_str):
     try:
         start, end = range_str.split("-")
         start_ip = ip_address(start.strip())
         end_ip = ip_address(end.strip())
         if start_ip > end_ip:
             raise ValueError("Start IP is greater than end IP in range.")
-        return {str(ip) for ip in range(start_ip, end_ip + 1)}
+        return {str(ip) for ip in range(int(start_ip), int(end_ip) + 1)}
     except ValueError as e:
         print(f"Invalid IP range '{range_str}': {e}")
         return set()
@@ -149,7 +159,8 @@ def main():
     found_adfs = False
     print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<25}")
     print("=" * 75)
-    for target, code, status, _, _, _, _, _ in results:
+    for result in results:
+        target, code, status, *_ = result
         color = "green" if status == "Found" else "red"
         print(f"{target:<40} {code:<10} {colored(status, color):<25}")
         if status == "Found":
