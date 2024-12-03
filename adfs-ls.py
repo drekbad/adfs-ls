@@ -106,6 +106,31 @@ def expand_target_list(targets):
 
     return list(expanded_targets), private_ips, public_ips
 
+def sort_targets(targets):
+    """
+    Sort targets: FQDNs alphabetically, IPs numerically by octets.
+    """
+    fqdns = sorted([t for t in targets if re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", t)])
+    ips = sorted(
+        [t for t in targets if re.match(r"^\d+\.\d+\.\d+\.\d+$", t)],
+        key=lambda ip: tuple(map(int, ip.split("."))),
+    )
+    return fqdns + ips
+
+def display_results(results):
+    """
+    Display the results in a sorted table.
+    """
+    sorted_targets = sort_targets([result[0] for result in results])
+    print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<25}")
+    print("=" * 75)
+    for target in sorted_targets:
+        for result in results:
+            if result[0] == target:
+                code, status = result[1], result[2]
+                color = "green" if status == "Found" else "red"
+                print(f"{target:<40} {code:<10} {colored(status, color):<25}")
+
 def construct_url(target, path="/adfs/ls/idpinitiatedsignon.aspx"):
     if ":" in target:
         host, port = target.rsplit(":", 1)
