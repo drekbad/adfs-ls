@@ -63,21 +63,9 @@ def refined_expand_full_or_short_range(range_str):
         print(f"Invalid IP range '{range_str}': {e}")
         return []
 
-def validate_target(target):
-    """
-    Validate single target as IP, range, or FQDN.
-    """
-    if re.match(r"^\d+\.\d+\.\d+\.\d+$", target):  # Single IP
-        return True
-    if re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", target):  # FQDN
-        return True
-    if re.match(r"^\d+\.\d+\.\d+\.\d+[-/]", target):  # IP range or CIDR
-        return True
-    return False
-
 def expand_target_list(targets):
     """
-    Expand targets into individual IPs, CIDRs, and FQDNs, with proper sorting.
+    Expand targets into individual IPs, CIDRs, and FQDNs.
     """
     expanded_targets = set()
 
@@ -109,13 +97,47 @@ def expand_target_list(targets):
 
     return ips + fqdns
 
+def check_adfs_target(target, timeout, verbose):
+    url = f"https://{target}/adfs/ls/idpinitiatedsignon.aspx"
+    try:
+        response = requests.get(url, timeout=timeout)
+        if response.status_code == 200 and "idp_RelyingPartyDropDownList" in response.text:
+            return target, response.status_code, "Found"
+        return target, response.status_code, "Not Found"
+    except requests.exceptions.RequestException as e:
+        error_message = str(e)
+        return target, "Error", error_message if verbose else "Request error"
+
+def process_target(target, timeout, verbose):
+    return check_adfs_target(target, timeout, verbose)
+
+def display_results(results):
+    """
+    Display the results in a sorted table.
+    """
+    print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<25}")
+    print("=" * 75)
+    for target, code, status in results:
+        color = "green" if status == "Found" else "red"
+        print(f"{target:<40} {code:<10} {colored(status, color):<25}")
+
 def main():
     args = parse_arguments()
+
     with open(args.input, "r") as file:
         raw_targets = file.read().splitlines()
 
     expanded_targets = expand_target_list(raw_targets)
     print(f"Expanded Targets: {expanded_targets}")
+
+    results = []
+    with ThreadPoolExecutor(max_workers=min(args.threads, 50)) as executor:
+        futures = {executor.submit(process_target, target, args.timeout, args.verbose): target for target in expanded_targets}
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    print("\nProcessing complete.\n")
+    display_results(results)
 
 if __name__ == "__main__":
     main()
