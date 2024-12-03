@@ -44,7 +44,7 @@ def refined_expand_full_or_short_range(range_str):
                 end_ip = ip_address(end_part)
                 if start_ip > end_ip:
                     raise ValueError(f"Start IP {start_ip} is greater than end IP {end_ip}.")
-                return [str(ip_address(ip)) for ip in range(int(start_ip), int(end_ip) + 1)]
+                return [str(ip) for ip in range(int(start_ip), int(end_ip) + 1)]
 
             # Otherwise, assume it's a short octet range
             base_ip, last_octet = start_ip_str.rsplit(".", 1)
@@ -62,7 +62,23 @@ def refined_expand_full_or_short_range(range_str):
 
         raise ValueError("Invalid range format.")
     except ValueError as e:
-        return f"Invalid IP range '{range_str}': {e}"
+        print(f"Invalid IP range '{range_str}': {e}")
+        return []
+
+def validate_target(target):
+    """
+    Validate a single target to ensure it is an IP, range, or FQDN.
+    """
+    # Match single IP
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", target):
+        return True
+    # Match FQDN
+    if re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", target):
+        return True
+    # Match CIDR or hyphenated range
+    if "/" in target or "-" in target:
+        return True
+    return False
 
 def expand_target_list(targets):
     expanded_targets = set()
@@ -71,6 +87,9 @@ def expand_target_list(targets):
 
     for target in targets:
         target = target.strip()
+        if not validate_target(target):
+            print(f"Invalid target '{target}' - skipping.")
+            continue
         if re.match(r"^\d+\.\d+\.\d+\.\d+$", target):  # Single IP
             expanded_targets.add(target)
             (private_ips if ip_address(target).is_private else public_ips).add(target)
