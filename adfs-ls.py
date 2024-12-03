@@ -60,7 +60,7 @@ def refined_expand_full_or_short_range(range_str):
 
         raise ValueError(f"Invalid range format: unexpected end value '{end_part}'.")
     except ValueError as e:
-        print(colored(f"ERROR: Invalid IP range '{range_str}': {e}", "red"))
+        print(f"{colored('ERROR:', 'red')} Invalid IP range '{range_str}': {e}")
         return []
 
 def expand_target_list(targets):
@@ -80,11 +80,11 @@ def expand_target_list(targets):
                 network = ip_network(target, strict=False)
                 expanded_targets.update(str(ip) for ip in network)
             except ValueError as e:
-                print(colored(f"ERROR: Invalid CIDR range '{target}': {e}", "red"))
+                print(f"{colored('ERROR:', 'red')} Invalid CIDR range '{target}': {e}")
         elif re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", target):  # FQDN
             expanded_targets.add(target)
         else:
-            print(colored(f"WARNING: Invalid target '{target}' - skipping.", "yellow"))
+            print(f"{colored('WARNING:', 'yellow')} Invalid target '{target}' - skipping.")
 
     # Separate IPs and FQDNs for proper sorting
     ips = sorted(
@@ -122,7 +122,7 @@ def display_results(results):
     """
     Display the results in a sorted table.
     """
-    print("\n\nResults:")
+    print("\nProcessing complete.")
     print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<25}")
     print("=" * 75)
     for target, code, status in results:
