@@ -2,7 +2,7 @@ import argparse
 import requests
 from bs4 import BeautifulSoup
 from termcolor import colored
-from ipaddress import ip_network, ip_address
+from ipaddress import ip_address, ip_network
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -19,6 +19,47 @@ def parse_arguments():
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output for detailed error information.")
     return parser.parse_args()
 
+def refined_expand_full_or_short_range(range_str):
+    """
+    Handle both full IP ranges (e.g., "192.168.1.1 - 192.168.1.5") and short octet ranges
+    (e.g., "192.168.1.1 - 115"), ensuring outputs are in dotted-decimal format.
+    """
+    try:
+        # Normalize spaces around the hyphen
+        range_str = re.sub(r"\s*-\s*", "-", range_str.strip())
+
+        # Check if the range contains a short form (last octet only)
+        if "-" in range_str:
+            parts = range_str.split("-")
+            start_ip_str = parts[0].strip()
+            end_part = parts[1].strip()
+
+            # If end_part is a full IP, treat as a full range
+            if re.match(r"^\d+\.\d+\.\d+\.\d+$", end_part):
+                start_ip = ip_address(start_ip_str)
+                end_ip = ip_address(end_part)
+                if start_ip > end_ip:
+                    raise ValueError(f"Start IP {start_ip} is greater than end IP {end_ip}.")
+                return [str(ip_address(ip)) for ip in range(int(start_ip), int(end_ip) + 1)]
+
+            # Otherwise, assume it's a short octet range
+            base_ip, last_octet = start_ip_str.rsplit(".", 1)
+            start_octet = int(last_octet)
+            end_octet = int(end_part)
+
+            # Validate octet values
+            if not (0 <= start_octet <= 255 and 0 <= end_octet <= 255):
+                raise ValueError("Octet values must be between 0 and 255.")
+            if start_octet > end_octet:
+                raise ValueError(f"Start octet {start_octet} is greater than end octet {end_octet}.")
+
+            # Generate the range
+            return [f"{base_ip}.{i}" for i in range(start_octet, end_octet + 1)]
+
+        raise ValueError("Invalid range format.")
+    except ValueError as e:
+        return f"Invalid IP range '{range_str}': {e}"
+
 def expand_target_list(targets):
     expanded_targets = set()
     private_ips = set()
@@ -28,88 +69,19 @@ def expand_target_list(targets):
         target = target.strip()
         if re.match(r"^\d+\.\d+\.\d+\.\d+$", target):  # Single IP
             expanded_targets.add(target)
-            (private_ips if is_private_ip(target) else public_ips).add(target)
-        elif re.match(r"^\d+\.\d+\.\d+\.\d+-\d+$", target):  # Hyphenated range, short form
-            expanded_targets.update(expand_short_hyphen_range(target))
-        elif "-" in target:  # Full dotted octet range (e.g., 192.168.1.1-192.168.1.5)
-            expanded_targets.update(expand_full_hyphen_range(target))
+            (private_ips if ip_address(target).is_private else public_ips).add(target)
+        elif "-" in target:  # Hyphenated range
+            expanded_targets.update(refined_expand_full_or_short_range(target))
         elif "/" in target:  # CIDR range
-            expanded_targets.update(expand_cidr_range(target))
-        else:  # Domain or FQDN
+            try:
+                network = ip_network(target, strict=False)
+                expanded_targets.update(str(ip) for ip in network)
+            except ValueError as e:
+                print(f"Invalid CIDR range '{target}': {e}")
+        else:  # Assume domain or FQDN
             expanded_targets.add(target)
 
     return list(expanded_targets), private_ips, public_ips
-
-def expand_cidr_range(cidr):
-    try:
-        network = ip_network(cidr, strict=False)
-        return {str(ip) for ip in network}
-    except ValueError as e:
-        print(f"Invalid CIDR range '{cidr}': {e}")
-        return set()
-
-def expand_short_hyphen_range(range_str):
-    try:
-        # Normalize spaces around hyphen and split
-        range_str = re.sub(r"\s*-\s*", "-", range_str.strip())
-        base, last_part = range_str.rsplit(".", 1)
-        if "-" in last_part:
-            # Handle cases like "100.100.100.100-115" or "100.100.100.100 - 115"
-            start_octet, end_part = last_part.split("-")
-            start_octet = int(start_octet)
-            if re.match(r"^\d+$", end_part):  # Check if it's a final octet
-                end_octet = int(end_part)
-                if not (0 <= start_octet <= 255 and 0 <= end_octet <= 255):
-                    raise ValueError("Octet values must be between 0 and 255.")
-                if start_octet > end_octet:
-                    raise ValueError("Start octet is greater than end octet.")
-                return {f"{base}.{i}" for i in range(start_octet, end_octet + 1)}
-            elif re.match(r"^\d+\.\d+\.\d+\.\d+$", end_part):  # Handle full IP
-                full_end_ip = ip_address(end_part)
-                start_ip = ip_address(f"{base}.{start_octet}")
-                if start_ip > full_end_ip:
-                    raise ValueError("Start IP is greater than end IP.")
-                return {str(ip) for ip in range(int(start_ip), int(full_end_ip) + 1)}
-            else:
-                raise ValueError("Invalid range format after hyphen.")
-        else:
-            raise ValueError("Hyphenated range format invalid.")
-    except ValueError as e:
-        print(f"Invalid IP range '{range_str}': {e}")
-        return set()
-
-def expand_full_hyphen_range(range_str):
-    try:
-        # Split the range into start and end IPs
-        start_ip_str, end_ip_str = range_str.split("-")
-        start_ip = ip_address(start_ip_str.strip())
-        end_ip = ip_address(end_ip_str.strip())
-
-        # Ensure the start IP is less than or equal to the end IP
-        if start_ip > end_ip:
-            raise ValueError(f"Start IP {start_ip} is greater than end IP {end_ip}.")
-
-        # Generate the range of IPs
-        return {str(ip) for ip in range(int(start_ip), int(end_ip) + 1)}
-    except ValueError as e:
-        print(f"Invalid IP range '{range_str}': {e}")
-        return set()
-
-def is_private_ip(ip):
-    try:
-        return ip_address(ip).is_private
-    except ValueError:
-        return False
-
-def warn_and_confirm(private_ips, public_ips):
-    if private_ips and public_ips:
-        print(colored("Warning: Both private and public IPs detected.", "yellow"))
-        print(f"Private IPs: {', '.join(private_ips)}")
-        print(f"Public IPs: {', '.join(public_ips)}")
-        confirm = input("Do you want to proceed? (y/N): ").strip().lower()
-        if confirm != "y":
-            print("Aborting...")
-            exit()
 
 def construct_url(target, path="/adfs/ls/idpinitiatedsignon.aspx"):
     if ":" in target:
@@ -149,20 +121,14 @@ def display_progress(total, completed):
     with output_lock:
         print(f"\rSearching for ADFS targets... {completed}/{total} completed", end="", flush=True)
 
-def write_to_file(file_path, content):
-    with open(file_path, "w") as file:
-        file.write(content)
-
 def main():
     args = parse_arguments()
     results = []
-    output_content = []
 
     with open(args.input, "r") as file:
         raw_targets = file.read().splitlines()
 
     expanded_targets, private_ips, public_ips = expand_target_list(raw_targets)
-    warn_and_confirm(private_ips, public_ips)
 
     print("Starting search with threading...")
     total_targets = len(expanded_targets)
@@ -180,21 +146,12 @@ def main():
     print("\nProcessing complete.\n")
 
     # Display results
-    found_adfs = False
     print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<25}")
     print("=" * 75)
     for result in results:
         target, code, status, *_ = result
         color = "green" if status == "Found" else "red"
         print(f"{target:<40} {code:<10} {colored(status, color):<25}")
-        if status == "Found":
-            found_adfs = True
-
-    if not found_adfs:
-        print("\nNo ADFS/IDP services identified for the provided targets.")
-
-    if args.output:
-        write_to_file(args.output, "".join(output_content))
 
 if __name__ == "__main__":
     main()
