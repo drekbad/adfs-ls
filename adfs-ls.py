@@ -77,7 +77,7 @@ def validate_target(target):
 
 def expand_target_list(targets):
     """
-    Expand targets into individual IPs, CIDRs, and FQDNs.
+    Expand targets into individual IPs, CIDRs, and FQDNs, with proper sorting.
     """
     expanded_targets = set()
 
@@ -98,7 +98,16 @@ def expand_target_list(targets):
         else:
             print(f"Invalid target '{target}' - skipping.")
 
-    return sorted(expanded_targets, key=lambda x: tuple(map(int, x.split("."))) if re.match(r"^\d+\.\d+\.\d+\.\d+$", x) else x)
+    # Separate IPs and FQDNs for proper sorting
+    ips = sorted(
+        [t for t in expanded_targets if re.match(r"^\d+\.\d+\.\d+\.\d+$", t)],
+        key=lambda ip: tuple(map(int, ip.split("."))),
+    )
+    fqdns = sorted(
+        [t for t in expanded_targets if re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", t)]
+    )
+
+    return ips + fqdns
 
 def main():
     args = parse_arguments()
