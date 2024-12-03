@@ -17,6 +17,7 @@ def parse_arguments():
     parser.add_argument("-o", "--output", help="Output file to save the results.")
     parser.add_argument("--timeout", type=int, default=5, help="Request timeout in seconds (default: 5).")
     parser.add_argument("-t", "--threads", type=int, default=10, help="Number of threads to use (default: 10, max: 50).")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output for detailed error information.")
     return parser.parse_args()
 
 def construct_url(target, path="/adfs/ls/idpinitiatedsignon.aspx"):
@@ -43,9 +44,14 @@ def check_adfs_target(target, timeout):
             return target, response.status_code, "Found", options
         return target, response.status_code, "Not Found", []
     except requests.exceptions.RequestException as e:
-        return target, "Error", str(e), []
+        error_message = str(e)
+        if "Max retries exceeded" in error_message:
+            concise_error = "No response on port 443"
+        else:
+            concise_error = "Request error"
+        return target, "Error", concise_error, [] if args.verbose else []
 
-def process_target(target, timeout):
+def process_target(target, timeout, verbose):
     code, status, options = check_adfs_target(target, timeout)[1:]
     metadata_url, metadata_content = fetch_metadata(target.strip(), timeout)
     endpoints, related_urls, external_urls = [], [], []
@@ -103,7 +109,7 @@ def main():
     completed_targets = 0
 
     with ThreadPoolExecutor(max_workers=min(args.threads, 50)) as executor:
-        futures = {executor.submit(process_target, target, args.timeout): target for target in targets}
+        futures = {executor.submit(process_target, target, args.timeout, args.verbose): target for target in targets}
 
         for future in as_completed(futures):
             result = future.result()
@@ -114,11 +120,18 @@ def main():
     print("\nProcessing complete.\n")
 
     # Display results
-    print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<10}")
-    print("=" * 60)
+    found_adfs = False
+    print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<15}")
+    print("=" * 65)
     for target, code, status, _, _, _, _, _ in results:
         color = "green" if status == "Found" else "red"
-        print(f"{target:<40} {code:<10} {colored(status, color):<10}")
+        print(f"{target:<40} {code:<10} {colored(status, color):<15}")
+        if status == "Found":
+            found_adfs = True
+
+    # Add summary if no ADFS/IDP services were identified
+    if not found_adfs:
+        print("\nNo ADFS/IDP services identified for the provided targets.")
 
     # Further processing and output logic...
 
