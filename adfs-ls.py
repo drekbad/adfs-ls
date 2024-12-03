@@ -28,7 +28,7 @@ def construct_url(target, path="/adfs/ls/idpinitiatedsignon.aspx"):
         return f"https://{host}:{port}{path}"
     return f"https://{target}{path}"
 
-def check_adfs_target(target, timeout):
+def check_adfs_target(target, timeout, verbose):
     url = construct_url(target)
     try:
         response = requests.get(url, timeout=timeout)
@@ -49,10 +49,10 @@ def check_adfs_target(target, timeout):
             concise_error = "No response on port 443"
         else:
             concise_error = "Request error"
-        return target, "Error", concise_error, [] if args.verbose else []
+        return target, "Error", concise_error if verbose else "Request error (use -v for details)", []
 
 def process_target(target, timeout, verbose):
-    code, status, options = check_adfs_target(target, timeout)[1:]
+    code, status, options = check_adfs_target(target, timeout, verbose)[1:]
     metadata_url, metadata_content = fetch_metadata(target.strip(), timeout)
     endpoints, related_urls, external_urls = [], [], []
     if metadata_content:
