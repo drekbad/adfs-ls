@@ -80,11 +80,16 @@ def expand_short_hyphen_range(range_str):
 
 def expand_full_hyphen_range(range_str):
     try:
-        start, end = range_str.split("-")
-        start_ip = ip_address(start.strip())
-        end_ip = ip_address(end.strip())
+        # Split the range into start and end IPs
+        start_ip_str, end_ip_str = range_str.split("-")
+        start_ip = ip_address(start_ip_str.strip())
+        end_ip = ip_address(end_ip_str.strip())
+
+        # Ensure the start IP is less than or equal to the end IP
         if start_ip > end_ip:
-            raise ValueError("Start IP is greater than end IP in range.")
+            raise ValueError(f"Start IP {start_ip} is greater than end IP {end_ip}.")
+
+        # Generate the range of IPs
         return {str(ip) for ip in range(int(start_ip), int(end_ip) + 1)}
     except ValueError as e:
         print(f"Invalid IP range '{range_str}': {e}")
