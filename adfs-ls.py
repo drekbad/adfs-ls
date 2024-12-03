@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import argparse
 import requests
 from bs4 import BeautifulSoup
@@ -52,8 +50,9 @@ def expand_cidr_range(cidr):
 
 def expand_short_hyphen_range(range_str):
     try:
+        # Split the base IP and the range
         base, last_part = range_str.rsplit(".", 1)
-        if "-" in last_part:  # Handle cases like "100.100.100.100 - 115"
+        if "-" in last_part:  # Format like "100.100.100.100 - 115"
             start_octet, end_octet = map(int, last_part.split("-"))
             if not (0 <= start_octet <= 255 and 0 <= end_octet <= 255):
                 raise ValueError("Octet values must be between 0 and 255.")
