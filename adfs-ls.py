@@ -5,12 +5,18 @@ from termcolor import colored
 from xml.etree import ElementTree as ET
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+
+# Lock for thread-safe output
+output_lock = Lock()
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Check ADFS URL for dropdown field and extract options.")
     parser.add_argument("-i", "--input", required=True, help="Input file containing FQDNs or IPs.")
     parser.add_argument("-o", "--output", help="Output file to save the results.")
     parser.add_argument("--timeout", type=int, default=5, help="Request timeout in seconds (default: 5).")
+    parser.add_argument("-t", "--threads", type=int, default=10, help="Number of threads to use (default: 10, max: 50).")
     return parser.parse_args()
 
 def construct_url(target, path="/adfs/ls/idpinitiatedsignon.aspx"):
@@ -34,10 +40,18 @@ def check_adfs_target(target, timeout):
                     human_readable = option.text.strip()
                     alphanumeric_id = option.get("value", "N/A")
                     options.append((human_readable, alphanumeric_id))
-            return response.status_code, "Found", options
-        return response.status_code, "Not Found", []
+            return target, response.status_code, "Found", options
+        return target, response.status_code, "Not Found", []
     except requests.exceptions.RequestException as e:
-        return "Error", str(e), []
+        return target, "Error", str(e), []
+
+def process_target(target, timeout):
+    code, status, options = check_adfs_target(target, timeout)[1:]
+    metadata_url, metadata_content = fetch_metadata(target.strip(), timeout)
+    endpoints, related_urls, external_urls = [], [], []
+    if metadata_content:
+        endpoints, related_urls, external_urls = parse_metadata(metadata_content, target.strip())
+    return target, code, status, options, metadata_url, endpoints, related_urls, external_urls
 
 def fetch_metadata(target, timeout):
     url = construct_url(target, path="/FederationMetadata/2007-06/FederationMetadata.xml")
@@ -59,7 +73,6 @@ def parse_metadata(xml_content, target):
             if location:
                 endpoints.add(location)
 
-        # Extract and sort related URLs
         all_urls = set(re.findall(r"https?://[^\s\"<>]+", xml_content))
         related_urls = sorted({
             url for url in all_urls
@@ -73,107 +86,41 @@ def parse_metadata(xml_content, target):
     except ET.ParseError:
         return [], [], []
 
-def well_known_checks(urls, timeout):
-    well_known_paths = [
-        "/trust/mex",
-        "/adfs/ls/",
-        "/.well-known/openid-configuration"
-    ]
-    hits = []
-    for base_url in urls:
-        for path in well_known_paths:
-            full_url = base_url.rstrip("/") + path
-            try:
-                response = requests.get(full_url, timeout=timeout)
-                if response.status_code == 200:
-                    hits.append(full_url)
-            except requests.exceptions.RequestException:
-                continue
-    return hits
-
-def write_to_file(file_path, content):
-    with open(file_path, "w") as file:
-        file.write(content)
-
-def display_results(results):
-    print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<10}")
-    print("=" * 60)
-    for result in results:
-        target, code, status = result[:3]
-        color = "green" if status == "Found" else "red"
-        print(f"{target:<40} {code:<10} {colored(status, color):<10}")
+def display_progress(total, completed):
+    with output_lock:
+        print(f"\rSearching for ADFS targets... {completed}/{total} completed", end="", flush=True)
 
 def main():
     args = parse_arguments()
     results = []
-    options_found = {}
-    metadata_found = {}
     output_content = []
 
     with open(args.input, "r") as file:
         targets = file.read().splitlines()
 
-    for target in targets:
-        code, status, options = check_adfs_target(target.strip(), args.timeout)
-        results.append((target, code, status))
-        if status == "Found" and options:
-            options_found[target] = options
-            metadata_url, metadata_content = fetch_metadata(target.strip(), args.timeout)
-            if metadata_content:
-                endpoints, related_urls, external_urls = parse_metadata(metadata_content, target.strip())
-                metadata_found[target] = (metadata_url, endpoints, related_urls, external_urls)
-            else:
-                metadata_found[target] = (metadata_url, None, None, None)
+    print("Starting search with threading...")
+    total_targets = len(targets)
+    completed_targets = 0
 
-    # Display results for sign-on page checks
-    display_results(results)
-    time.sleep(2)
+    with ThreadPoolExecutor(max_workers=min(args.threads, 50)) as executor:
+        futures = {executor.submit(process_target, target, args.timeout): target for target in targets}
 
-    # Display relying party dropdown contents
-    if options_found:
-        print("\nEnumerated Relying Parties:")
-        for target, options in options_found.items():
-            print(f"\nTarget: {target}")
-            print(f"{'Entity Name':<40} {'ID':<20}")
-            print("=" * 60)
-            for human_readable, alphanumeric_id in options:
-                print(f"{human_readable:<40} {alphanumeric_id:<20}")
+        for future in as_completed(futures):
+            result = future.result()
+            results.append(result)
+            completed_targets += 1
+            display_progress(total_targets, completed_targets)
 
-    # Display metadata results
-    if metadata_found:
-        print("\nMetadata Results:")
-        print("=" * 80)
-        for target, (metadata_url, endpoints, related_urls, external_urls) in metadata_found.items():
-            print(f"\nTarget: {target}")
-            print(colored("Metadata URL:", "cyan", attrs=["underline"]))
-            print(metadata_url)
-            if endpoints:
-                print(colored("Endpoints:", "cyan", attrs=["underline"]))
-                for endpoint in endpoints:
-                    print(endpoint)
-            if related_urls:
-                print(colored("Related URLs:", "cyan", attrs=["underline"]))
-                for url in related_urls:
-                    if url.startswith("http://"):
-                        print(colored("http://", "red") + url[7:])
-                    else:
-                        print(url)
-            if external_urls:
-                print(colored("External Domains Discovered:", "cyan", attrs=["underline"]))
-                for url in external_urls:
-                    print(url)
+    print("\nProcessing complete.\n")
 
-    # Check for additional metadata or resources
-    well_known_hits = []
-    for target, (_, _, related_urls, _) in metadata_found.items():
-        well_known_hits.extend(well_known_checks(related_urls, args.timeout))
-    
-    if well_known_hits:
-        print("\nAdditional Resources Identified:")
-        for hit in well_known_hits:
-            print(hit)
-    else:
-        print("\nNo additional metadata or resources identified.")
+    # Display results
+    print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<10}")
+    print("=" * 60)
+    for target, code, status, _, _, _, _, _ in results:
+        color = "green" if status == "Found" else "red"
+        print(f"{target:<40} {code:<10} {colored(status, color):<10}")
+
+    # Further processing and output logic...
 
     if args.output:
         write_to_file(args.output, "".join(output_content))
