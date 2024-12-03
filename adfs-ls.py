@@ -49,7 +49,7 @@ def check_adfs_target(target, timeout, verbose):
             concise_error = "No response on port 443"
         else:
             concise_error = "Request error"
-        return target, "Error", concise_error if verbose else "Request error (use -v for details)", []
+        return target, "Error", error_message if verbose else concise_error, []
 
 def process_target(target, timeout, verbose):
     code, status, options = check_adfs_target(target, timeout, verbose)[1:]
@@ -121,11 +121,11 @@ def main():
 
     # Display results
     found_adfs = False
-    print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<15}")
-    print("=" * 65)
+    print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<25}")
+    print("=" * 75)
     for target, code, status, _, _, _, _, _ in results:
         color = "green" if status == "Found" else "red"
-        print(f"{target:<40} {code:<10} {colored(status, color):<15}")
+        print(f"{target:<40} {code:<10} {colored(status, color):<25}")
         if status == "Found":
             found_adfs = True
 
