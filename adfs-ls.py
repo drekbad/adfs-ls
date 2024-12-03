@@ -34,6 +34,10 @@ def refined_expand_full_or_short_range(range_str):
             start_ip_str = parts[0].strip()
             end_part = parts[1].strip()
 
+            # Validate the starting IP
+            if not re.match(r"^\d+\.\d+\.\d+\.\d+$", start_ip_str):
+                raise ValueError(f"Invalid starting IP '{start_ip_str}'.")
+
             # If end_part is a full IP, treat as a full range
             if re.match(r"^\d+\.\d+\.\d+\.\d+$", end_part):
                 start_ip = ip_address(start_ip_str)
