@@ -60,7 +60,7 @@ def refined_expand_full_or_short_range(range_str):
 
         raise ValueError(f"Invalid range format: unexpected end value '{end_part}'.")
     except ValueError as e:
-        print(f"Invalid IP range '{range_str}': {e}")
+        print(colored(f"ERROR: Invalid IP range '{range_str}': {e}", "red"))
         return []
 
 def expand_target_list(targets):
@@ -80,11 +80,11 @@ def expand_target_list(targets):
                 network = ip_network(target, strict=False)
                 expanded_targets.update(str(ip) for ip in network)
             except ValueError as e:
-                print(f"Invalid CIDR range '{target}': {e}")
+                print(colored(f"ERROR: Invalid CIDR range '{target}': {e}", "red"))
         elif re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", target):  # FQDN
             expanded_targets.add(target)
         else:
-            print(f"Invalid target '{target}' - skipping.")
+            print(colored(f"WARNING: Invalid target '{target}' - skipping.", "yellow"))
 
     # Separate IPs and FQDNs for proper sorting
     ips = sorted(
@@ -111,10 +111,18 @@ def check_adfs_target(target, timeout, verbose):
 def process_target(target, timeout, verbose):
     return check_adfs_target(target, timeout, verbose)
 
+def display_progress(total, completed):
+    """
+    Display progress in the terminal.
+    """
+    with output_lock:
+        print(f"\rSearching for ADFS targets... {completed}/{total} completed", end="", flush=True)
+
 def display_results(results):
     """
     Display the results in a sorted table.
     """
+    print("\n\nResults:")
     print(f"{'Target':<40} {'HTTP Code':<10} {'Status':<25}")
     print("=" * 75)
     for target, code, status in results:
@@ -128,15 +136,19 @@ def main():
         raw_targets = file.read().splitlines()
 
     expanded_targets = expand_target_list(raw_targets)
-    print(f"Expanded Targets: {expanded_targets}")
 
     results = []
+    total_targets = len(expanded_targets)
+    completed_targets = 0
+
     with ThreadPoolExecutor(max_workers=min(args.threads, 50)) as executor:
         futures = {executor.submit(process_target, target, args.timeout, args.verbose): target for target in expanded_targets}
         for future in as_completed(futures):
             results.append(future.result())
+            completed_targets += 1
+            display_progress(total_targets, completed_targets)
 
-    print("\nProcessing complete.\n")
+    print("\nProcessing complete.")
     display_results(results)
 
 if __name__ == "__main__":
