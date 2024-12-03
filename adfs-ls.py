@@ -50,10 +50,12 @@ def expand_cidr_range(cidr):
 
 def expand_short_hyphen_range(range_str):
     try:
-        base, last_octet = range_str.rsplit(".", 1)
-        start_octet, end_octet = map(int, last_octet.split("-"))
+        base, last_octet_range = range_str.rsplit(".", 1)
+        start_octet, end_octet = map(int, last_octet_range.split("-"))
         if not (0 <= start_octet <= 255 and 0 <= end_octet <= 255):
             raise ValueError("Octet values must be between 0 and 255.")
+        if start_octet > end_octet:
+            raise ValueError("Start octet is greater than end octet.")
         return {f"{base}.{i}" for i in range(start_octet, end_octet + 1)}
     except ValueError as e:
         print(f"Invalid IP range '{range_str}': {e}")
